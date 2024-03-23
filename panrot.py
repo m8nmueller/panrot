@@ -1,25 +1,58 @@
 import cv2
 import numpy as np
 import argparse
-#import sys
-#from affineTransformTools import getTranslationX, getTranslationY, getRotation, getAffineTransform
+from functools import reduce
 
 no_warp = np.array([[1, 0, 0], [0, 1, 0]])
 
-def getWarp0(img1, img2, prev_points: cv2.UMat):
-    points, status, err = cv2.calcOpticalFlowPyrLK(img1, img2, prev_points, None)
-    indices = np.where(status==1)[0]
-    warp_matrix, _ = cv2.estimateAffinePartial2D(prev_points[indices], points[indices], method=cv2.LMEDS)
-    return warp_matrix
+def debug_points(img1, img2, points1, points2):
+    cv2.imshow('Pre points', reduce(lambda im, p: cv2.circle(im, (int(p[1][0][0]), int(p[1][0][1])), 10, (p[0], 0, 200 - p[0]), -1), enumerate(points1), img1))
+    cv2.imshow('Post points', reduce(lambda im, p: cv2.circle(im, (int(p[1][0][0]), int(p[1][0][1])), 10, (p[0], 0, 200 - p[0]), -1), enumerate(points2), img2))
+    cv2.waitKey(0) # note that it waits for keypress inside image window
 
-# thanks to https://forum.opencv.org/t/measure-pan-rotate-and-resize-between-frames/16149/2 for algo
-# see https://stackoverflow.com/questions/54483794/what-is-inside-how-to-decompose-an-affine-warp-matrix for warp matrix decompose
+def debug_warps(imgs):
+    warps = []
+    for i in range(0, len(imgs) - 1):
+        warps.append(getWarp(imgs[i], imgs[i+1]))
 
+    shape = imgs[0].shape
+    shape = (shape[1], shape[0])
+
+    for (idx, img) in enumerate(reversed(imgs)):
+        warp = no_warp
+        idx = len(imgs) - 1 - idx
+        for wind in range(idx, len(imgs) - 1):
+            warp = multiplyAffine(warps[wind], warp)
+            frame = cv2.warpAffine(img, warp, shape)
+            cv2.imwrite(f'temp/img{idx}-warpto{wind+1}.jpg', frame)
+
+# see https://docs.opencv.org/3.4/d1/de0/tutorial_py_feature_homography.html
 def getWarp(img1, img2):
-    img1_gray = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    prev_points = cv2.goodFeaturesToTrack(img1_gray,maxCorners=200,qualityLevel=0.01,minDistance=30,blockSize=3)
-    return getWarp0(img1, img2, prev_points)
+    # Initiate SIFT detector
+    sift = cv2.SIFT.create()
+    # find the keypoints and descriptors with SIFT
+    kp1, des1 = sift.detectAndCompute(img1,None)
+    kp2, des2 = sift.detectAndCompute(img2,None)
+    FLANN_INDEX_KDTREE = 1
+    index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
+    search_params = dict(checks = 50)
+    flann = cv2.FlannBasedMatcher(index_params, search_params)
+    matches = flann.knnMatch(des1,des2,k=2)
+    # store all the good matches as per Lowe's ratio test.
+    good = []
+    for m,n in matches:
+        if m.distance < 0.7*n.distance:
+            good.append(m)
+    if len(good)>30:
+        src_pts = np.float32([ kp1[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
+        dst_pts = np.float32([ kp2[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
+        #debug_points(img1, img2, src_pts, dst_pts)
+        warp_matrix, _ = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.LMEDS)
+        return warp_matrix
+    else:
+        print(f'not enough matches: {len(good)}')
 
+# nice for affine stuff and show/plot basics: https://learnopencv.com/image-rotation-and-translation-using-opencv/
 def renderWarp(img1, img2, warp1to2, out, dur, fps, forward):
     shape = img1.shape
     shape = (shape[1], shape[0])
@@ -45,16 +78,13 @@ def translateImages(first: str, second: str, out: str, dur: int, fps: int, forwa
     fullm = getWarp(img1, img2)
     renderWarp(img1, img2, fullm, out, dur, fps, forward)
 
+# see https://stackoverflow.com/questions/40306194/combine-two-affine-transformations-matrices-in-opencv
 def multiplyAffine(m1, m2):
-    m1p = np.zeros((3,3))
-    m2p = np.zeros((3,3))
+    m1p = np.eye(3)
+    m2p = np.eye(3)
     m1p[0:2, :] = m1
     m2p[0:2, :] = m2
-    return (m1p * m2p)[0:2, :]
-    # res = np.empty((2, 3))
-    # res[0:2, 0:2] = m1[0:2, 0:2] * m2[0:2, 0:2]
-    # res[:, 2] = m1[:, 2] + m2[:, 2]
-    # return res
+    return (m1p @ m2p)[0:2, :]
 
 def translateImagesWithOrig(steps, first: str, second: str, out: str, dur: int, fps: int, forward):
     img1 = cv2.imread(first, cv2.IMREAD_COLOR)
