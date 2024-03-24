@@ -63,7 +63,7 @@ def renderWarp(img1, img2, warp1to2, out, dur, fps, forward):
         warp = cv2.invertAffineTransform(warp1to2)
 
     writer = cv2.VideoWriter(out, cv2.VideoWriter.fourcc(*'mp4v'), fps, shape)
-    for alpha in np.linspace(0, 1, num=fps * dur):
+    for alpha in np.linspace(0, 1, num=int(fps * dur)):
         if forward:
             frame = cv2.warpAffine(img1, (1-alpha) * no_warp + alpha * warp, shape)
         else:
@@ -71,7 +71,7 @@ def renderWarp(img1, img2, warp1to2, out, dur, fps, forward):
         writer.write(frame)
     writer.release()
 
-def translateImages(first: str, second: str, out: str, dur: int, fps: int, forward):
+def translateImages(first, second, out, dur, fps, forward):
     img1 = cv2.imread(first, cv2.IMREAD_COLOR)
     img2 = cv2.imread(second, cv2.IMREAD_COLOR)
 
@@ -86,7 +86,7 @@ def multiplyAffine(m1, m2):
     m2p[0:2, :] = m2
     return (m1p @ m2p)[0:2, :]
 
-def translateImagesWithOrig(steps, first: str, second: str, out: str, dur: int, fps: int, forward):
+def translateImagesWithOrig(steps, first, second, out, dur, fps, forward):
     img1 = cv2.imread(first, cv2.IMREAD_COLOR)
     img2 = cv2.imread(second, cv2.IMREAD_COLOR)
     imgs = [cv2.imread(step, cv2.IMREAD_COLOR) for step in steps]
@@ -101,23 +101,23 @@ def translateImagesWithOrig(steps, first: str, second: str, out: str, dur: int, 
 
 
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description="A simple tool to create a video transforming one image to another by affine transformation")
  
 # add arguments to the parser
-parser.add_argument("-f", "--fps", default=24, type=int)
-parser.add_argument("-d", "--dur", default=2, type=int)
-parser.add_argument("-o", "--out", default="out.mp4")
-parser.add_argument("first")
-parser.add_argument("second")
-parser.add_argument('--step', nargs='*')
-parser.add_argument('--forward', action='store_true')
+parser.add_argument("-f", "--fps", default=24, type=int, help="FPS for the rendered video (default 24)")
+parser.add_argument("-d", "--duration", default=2.0, type=float, help="time in seconds (float, default: 2)")
+parser.add_argument("-o", "--out", default="out.mp4", help="the output file location (default out.mp4)")
+parser.add_argument("first", help="the start image")
+parser.add_argument("second", help="the end image")
+parser.add_argument('--steps', nargs='*', help="supporting images in between (best use this after first/second)")
+parser.add_argument('--forward', action='store_true', help="transform the first image to become the second (default: vice-versa)")
 
 # parse the arguments
 args = parser.parse_args()
 
-if args.step == None:
+if args.steps == None:
     print("translating without steps")
-    translateImages(args.first, args.second, args.out, args.dur, args.fps, args.forward)
+    translateImages(args.first, args.second, args.out, args.duration, args.fps, args.forward)
 else:
-    print(f"translating with steps {args.step}")
-    translateImagesWithOrig(args.step, args.first, args.second, args.out, args.dur, args.fps, args.forward)
+    print(f"translating with steps {args.steps}")
+    translateImagesWithOrig(args.steps, args.first, args.second, args.out, args.duration, args.fps, args.forward)

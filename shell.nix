@@ -3,7 +3,7 @@ let
 in pkgs.mkShell {
   packages = [
     (pkgs.python3.withPackages (pykgs: [
-	pykgs.opencv4 pykgs.scipy pykgs.numpy
+	pykgs.opencv4 pykgs.numpy
     ]))
   ];
 }
